@@ -84,7 +84,7 @@ if choice == "הזנת עסקה חדשה":
         uploaded_file = st.file_uploader("העלה צילום מסך (TradingView/אחר)", type=['png', 'jpg', 'jpeg'])
 
         # כפתור שמירה
-        submitted = st.form_submit_submit("שמור עסקה")
+        submitted = st.form_submit_button("שמור עסקה")
 
     # לוגיקה לשמירה ב-Supabase
     if submitted:
