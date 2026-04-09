@@ -6,222 +6,197 @@ import os
 from supabase import create_client, Client
 import plotly.express as px
 
-# ==========================================
-# 1. הגדרות תצוגה ראשוניות (חייב להיות בהתחלה)
-# ==========================================
-st.set_page_config(page_title="TurtleSoup Ultimate Hub", layout="wide")
+# --- 1. הגדרות תצוגה ---
+st.set_page_config(page_title="TurtleSoup Pro Journal", layout="wide")
 
-# CSS מתקדם - תיקון צבעי טקסט וריבועי קלנדר
+# CSS לעיצוב פרימיום וקריאות מקסימלית
 st.markdown("""
     <style>
-    /* עיצוב המטריקות (האנליזה) כך שהטקסט יהיה תמיד קריא */
+    .main { background-color: #0e1117; }
+    /* מטריקות - אנליזה */
     div[data-testid="stMetric"] { 
         background-color: #1e2130; 
         border: 1px solid #3e4255; 
-        padding: 15px; 
-        border-radius: 10px; 
+        padding: 20px; 
+        border-radius: 12px; 
     }
-    div[data-testid="stMetricLabel"] > div { color: #00ffcc !important; font-size: 16px !important; font-weight: bold; }
-    div[data-testid="stMetricValue"] > div { color: white !important; font-size: 28px !important; }
-    
-    /* עיצוב ריבועי הקלנדר */
+    div[data-testid="stMetricLabel"] > div { color: #00ffcc !important; font-weight: bold; }
+    div[data-testid="stMetricValue"] > div { color: white !important; }
+
+    /* לוח שנה */
     .calendar-day { 
-        height: 100px; 
-        border-radius: 8px; 
-        padding: 8px; 
-        margin: 3px; 
-        display: flex; 
-        flex-direction: column; 
-        justify-content: space-between;
-        color: white !important;
+        height: 110px; border-radius: 10px; padding: 10px; margin: 4px; 
+        display: flex; flex-direction: column; justify-content: space-between;
+        color: white !important; transition: transform 0.2s;
     }
-    .win-day { background-color: #1b5e20; border: 1px solid #00ffcc; box-shadow: 0px 0px 5px rgba(0, 255, 204, 0.2); }
-    .loss-day { background-color: #b71c1c; border: 1px solid #ff4b4b; box-shadow: 0px 0px 5px rgba(255, 75, 75, 0.2); }
+    .calendar-day:hover { transform: scale(1.02); }
+    .win-day { background: linear-gradient(135deg, #1b5e20 0%, #2e7d32 100%); border: 1px solid #00ffcc; }
+    .loss-day { background: linear-gradient(135deg, #b71c1c 0%, #c62828 100%); border: 1px solid #ff4b4b; }
     .neutral-day { background-color: #1e2130; border: 1px solid #3e4255; }
     
-    /* תאריך בתוך הקלנדר */
-    .cal-date { font-size: 18px; font-weight: bold; align-self: flex-start; opacity: 0.9; }
-    .cal-pnl { font-size: 16px; font-weight: bold; text-align: center; }
-    .cal-trades { font-size: 11px; opacity: 0.7; text-align: center; }
+    .cal-date { font-size: 14px; font-weight: bold; opacity: 0.6; }
+    .cal-pnl { font-size: 18px; font-weight: 900; text-align: center; }
+    .cal-info { font-size: 10px; text-align: center; opacity: 0.8; }
+
+    /* כפתור שמירה */
+    .stButton>button { width: 100%; background-color: #00ffcc; color: black; font-weight: bold; border: none; }
     </style>
     """, unsafe_allow_html=True)
 
-# ==========================================
-# 2. חיבור מאובטח ל-Supabase
-# ==========================================
+# --- 2. חיבור ל-Supabase ---
 @st.cache_resource
 def init_connection():
     try:
         url = st.secrets["SUPABASE_URL"]
         key = st.secrets["SUPABASE_KEY"]
-    except Exception:
-        try:
-            from dotenv import load_dotenv
-            load_dotenv()
-        except ImportError:
-            pass
-        url = os.environ.get("SUPABASE_URL")
-        key = os.environ.get("SUPABASE_KEY")
-    
-    if not url or not key:
+        return create_client(url, key)
+    except:
+        st.error("חיבור ל-Supabase נכשל. בדוק את ה-Secrets.")
         return None
-    return create_client(url, key)
 
 supabase = init_connection()
 
-if not supabase:
-    st.error("⚠️ מפתחות ההתחברות ל-Supabase חסרים! אנא ודא שהם מוגדרים ב-Settings -> Secrets.")
-    st.stop()
-
-# ==========================================
-# 3. משיכת נתונים
-# ==========================================
+# --- 3. לוגיקת נתונים ---
 def fetch_data():
-    try:
-        res = supabase.table("turtle_soup_journal").select("*").execute()
-        df = pd.DataFrame(res.data)
-        
-        expected_cols = ['id', 'pnl', 'trade_date', 'notes', 'emotion']
-        for col in expected_cols:
-            if col not in df.columns:
-                df[col] = None
-                
-        if not df.empty:
-            df['trade_date'] = pd.to_datetime(df['trade_date'])
-            df['date_only'] = df['trade_date'].dt.date
-            df['pnl'] = pd.to_numeric(df['pnl'], errors='coerce').fillna(0)
-            
-        return df
-    except Exception as e:
-        st.error(f"⚠️ שגיאה במשיכת הנתונים: {e}")
-        return pd.DataFrame()
+    if not supabase: return pd.DataFrame()
+    res = supabase.table("turtle_soup_journal").select("*").order("trade_date", desc=True).execute()
+    df = pd.DataFrame(res.data)
+    if not df.empty:
+        df['trade_date'] = pd.to_datetime(df['trade_date'])
+        df['date_only'] = df['trade_date'].dt.date
+        df['pnl'] = pd.to_numeric(df['pnl'], errors='coerce').fillna(0)
+    return df
 
 df = fetch_data()
 
-# ==========================================
-# 4. בניית הממשק (Dashboard)
-# ==========================================
-st.title("🐢 TurtleSoup Ultimate Trading Hub")
+# --- 4. ממשק משתמש (UI) ---
+st.title("🛡️ TurtleSoup Ultimate Journal")
 
-# --- שורה עליונה: מטריקות וגרף ---
-col_stats, col_graph = st.columns([1, 2.5])
+# שורה 1: אנליזה מצטברת
+st.subheader("📊 Performance Analytics")
+col_a1, col_a2, col_a3, col_a4 = st.columns(4)
 
-with col_stats:
-    total_pnl = df['pnl'].sum() if not df.empty else 0
-    total_trades = len(df) if not df.empty else 0
-    wins = len(df[df['pnl'] > 0]) if not df.empty else 0
-    win_rate = (wins / total_trades) * 100 if total_trades > 0 else 0
+if not df.empty:
+    total_pnl = df['pnl'].sum()
+    win_rate = (len(df[df['pnl'] > 0]) / len(df)) * 100
+    avg_tp = df['tp_points'].mean()
+    avg_sl = df['stop_points'].mean()
     
-    st.metric("Total Net PNL", f"${total_pnl:,.2f}")
-    st.metric("Win Rate", f"{win_rate:.1f}%")
-    st.metric("Total Trades", total_trades)
-
-with col_graph:
-    if not df.empty and total_trades > 0:
-        df_sorted = df.sort_values('trade_date')
-        df_sorted['cum_pnl'] = df_sorted['pnl'].cumsum()
-        fig = px.area(df_sorted, x='trade_date', y='cum_pnl', title="Equity Curve (Growth)")
-        fig.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font_color="white", height=250, margin=dict(l=0, r=0, t=30, b=0))
-        st.plotly_chart(fig, use_container_width=True)
-    else:
-        st.info("📊 הגרף יופיע כאן לאחר שתזין את העסקה הראשונה.")
+    col_a1.metric("Net Profit", f"${total_pnl:,.2f}")
+    col_a2.metric("Win Rate", f"{win_rate:.1f}%")
+    col_a3.metric("Avg TP Points", f"{avg_tp:.1f}")
+    col_a4.metric("Avg SL Points", f"{avg_sl:.1f}")
 
 st.markdown("---")
 
-# --- שורה אמצעית: לוח שנה (Calendar) וטופס הזנה ---
-col_cal, col_form = st.columns([2, 1])
+# שורה 2: לוח שנה והזנה
+col_left, col_right = st.columns([2, 1])
 
-with col_cal:
+with col_left:
     st.subheader("📅 Trading Calendar")
     now = datetime.now()
     curr_year, curr_month = now.year, now.month
     
     cal = calendar.monthcalendar(curr_year, curr_month)
     month_name = calendar.month_name[curr_month]
-    st.write(f"**{month_name} {curr_year}**")
+    st.write(f"### {month_name} {curr_year}")
     
-    # כותרות ימי השבוע
-    days_cols = st.columns(7)
-    for i, day in enumerate(["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]):
-        days_cols[i].markdown(f"<div style='text-align: center; font-size: 14px; color: #aaa; font-weight: bold;'>{day}</div>", unsafe_allow_html=True)
+    # כותרות ימים
+    day_names = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+    header_cols = st.columns(7)
+    for i, d in enumerate(day_names): header_cols[i].markdown(f"<center><b>{d}</b></center>", unsafe_allow_html=True)
     
-    # בניית הריבועים
     for week in cal:
         week_cols = st.columns(7)
         for i, day in enumerate(week):
-            if day == 0:
-                week_cols[i].write("") 
+            if day == 0: week_cols[i].write("")
             else:
                 date_obj = datetime(curr_year, curr_month, day).date()
-                day_trades = df[df['date_only'] == date_obj] if not df.empty else pd.DataFrame()
+                day_data = df[df['date_only'] == date_obj] if not df.empty else pd.DataFrame()
+                day_pnl = day_data['pnl'].sum() if not day_data.empty else 0
+                trades_count = len(day_data)
                 
-                day_pnl = day_trades['pnl'].sum() if not day_trades.empty else 0
-                trade_count = len(day_trades)
-                
-                box_class = "neutral-day"
-                if trade_count > 0:
-                    box_class = "win-day" if day_pnl >= 0 else "loss-day"
+                box_color = "neutral-day"
+                if trades_count > 0:
+                    box_color = "win-day" if day_pnl >= 0 else "loss-day"
                 
                 week_cols[i].markdown(f"""
-                    <div class="calendar-day {box_class}">
+                    <div class="calendar-day {box_color}">
                         <div class="cal-date">{day}</div>
                         <div class="cal-pnl">${day_pnl:,.0f}</div>
-                        <div class="cal-trades">{trade_count} Trades</div>
+                        <div class="cal-info">{trades_count} Trades</div>
                     </div>
                 """, unsafe_allow_html=True)
 
-with col_form:
-    st.subheader("➕ Quick Log")
-    with st.form("trade_form", clear_on_submit=True):
-        c_pnl, c_date = st.columns(2)
-        f_pnl = c_pnl.number_input("PNL ($)", step=10.0, format="%.2f")
-        f_date = c_date.date_input("Date", datetime.now())
-        
-        st.write("🔍 **Confirmations**")
-        conf_cols = st.columns(3)
-        f_ts = conf_cols[0].checkbox("Turtle Soup")
-        f_ifvg = conf_cols[0].checkbox("IFVG")
-        f_liq = conf_cols[1].checkbox("Liquidity")
-        f_ote = conf_cols[1].checkbox("OTE / 0.5")
-        f_prem = conf_cols[2].checkbox("Premium")
-        f_pull = conf_cols[2].checkbox("Pullback")
-        
-        f_emotion = st.selectbox("How did you feel?", ["Neutral", "Confident", "Greedy", "Fearful", "Revenge"])
-        f_notes = st.text_input("Notes / Lessons")
-        
-        submitted = st.form_submit_button("LOCK TRADE 🔒")
-        
-        if submitted:
-            # איסוף הסימונים לתוך טקסט כדי למנוע קריסות של עמודות חסרות במסד הנתונים
-            checked_items = []
-            if f_ts: checked_items.append("Turtle Soup")
-            if f_ifvg: checked_items.append("IFVG")
-            if f_liq: checked_items.append("Liquidity")
-            if f_ote: checked_items.append("OTE/0.5")
-            if f_prem: checked_items.append("Premium")
-            if f_pull: checked_items.append("Pullback")
-            
-            conf_string = " | ".join(checked_items) if checked_items else "No confirmations selected"
-            final_notes = f"[{conf_string}] {f_notes}"
-            
-            new_trade = {
-                "pnl": float(f_pnl),
-                "trade_date": str(f_date),
-                "emotion": f_emotion,
-                "notes": final_notes
-            }
-            try:
-                supabase.table("turtle_soup_journal").insert(new_trade).execute()
-                st.success("Trade Recorded!")
-                st.rerun() 
-            except Exception as e:
-                st.error(f"❌ Error saving trade: {e}")
+    # גרף Equity מתחת ללוח השנה
+    if not df.empty:
+        df_sorted = df.sort_values('trade_date')
+        df_sorted['cum_pnl'] = df_sorted['pnl'].cumsum()
+        fig = px.line(df_sorted, x='trade_date', y='cum_pnl', title="Lifetime Equity Curve", template="plotly_dark")
+        fig.update_traces(line_color='#00ffcc')
+        st.plotly_chart(fig, use_container_width=True)
 
-# --- שורה תחתונה: היסטוריית עסקאות ---
+with col_right:
+    st.subheader("➕ Log Trade")
+    with st.form("trade_entry", clear_on_submit=True):
+        f_date = st.date_input("Trade Date", datetime.now())
+        f_pnl = st.number_input("PNL ($)", step=10.0)
+        
+        c1, c2 = st.columns(2)
+        f_sl = c1.number_input("Stop Points", step=1.0)
+        f_tp = c2.number_input("TP Points", step=1.0)
+        
+        st.write("🛡️ **Confirmations**")
+        cb1, cb2 = st.columns(2)
+        c_ts = cb1.checkbox("Turtle Soup")
+        c_1m = cb1.checkbox("1m IFVG")
+        c_3m = cb1.checkbox("3m IFVG")
+        c_5m = cb1.checkbox("5m IFVG")
+        c_li = cb1.checkbox("Liquidity Taken")
+        
+        c_pr = cb2.checkbox("Premium")
+        c_di = cb2.checkbox("Discount")
+        c_pb = cb2.checkbox("Entry at Pullback")
+        c_ote = cb2.checkbox("OTE")
+        c_05 = cb2.checkbox("0.5 Range")
+        
+        f_htf = st.text_input("HTF PD Array (e.g., Daily FVG)")
+        f_emo = st.selectbox("Emotion", ["Neutral", "Confident", "Greedy", "Fearful", "Revenge"])
+        f_notes = st.text_area("Notes & Lessons")
+        
+        # העלאת תמונה
+        f_img = st.file_uploader("Upload Screenshot", type=['png', 'jpg', 'jpeg'])
+        
+        submit = st.form_submit_button("SAVE TRADE 🔒")
+        
+        if submit:
+            # איסוף ה-Checkboxes
+            confs = [k for k, v in {"Turtle Soup": c_ts, "1m IFVG": c_1m, "3m IFVG": c_3m, "5m IFVG": c_5m, 
+                                    "Liquidity": c_li, "Premium": c_pr, "Discount": c_di, 
+                                    "Pullback": c_pb, "OTE": c_ote, "0.5 Range": c_05}.items() if v]
+            
+            new_data = {
+                "trade_date": str(f_date),
+                "pnl": f_pnl,
+                "stop_points": f_sl,
+                "tp_points": f_tp,
+                "confirmations": ", ".join(confs),
+                "htf_pd_array": f_htf,
+                "emotion": f_emo,
+                "notes": f_notes,
+                "image_url": "" # כאן אפשר להוסיף לוגיקת העלאה ל-S3/Supabase Storage
+            }
+            
+            try:
+                supabase.table("turtle_soup_journal").insert(new_data).execute()
+                st.success("Trade Recorded!")
+                st.rerun()
+            except Exception as e:
+                st.error(f"Error: {e}")
+
+# שורה 3: היסטוריה מפורטת
 st.markdown("---")
-st.subheader("📜 Recent Records")
-if not df.empty and total_trades > 0:
-    display_df = df.sort_values('trade_date', ascending=False)[['trade_date', 'pnl', 'emotion', 'notes']].head(10)
-    st.dataframe(display_df, use_container_width=True, hide_index=True)
-else:
-    st.write("אין עדיין עסקאות להצגה.")
+st.subheader("📜 Recent History")
+if not df.empty:
+    st.dataframe(df[['trade_date', 'pnl', 'stop_points', 'tp_points', 'emotion', 'confirmations', 'notes']], 
+                 use_container_width=True, hide_index=True)
